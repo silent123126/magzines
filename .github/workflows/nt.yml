@@ -9,7 +9,7 @@ on:
 # 在 workflow 文件顶部添加权限
 permissions:
   issues: write
-  contents: read
+  contents: write
   
 jobs:
   worker:
