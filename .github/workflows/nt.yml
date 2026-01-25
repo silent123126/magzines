@@ -5,6 +5,12 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 1 * * *'
+
+# 在 workflow 文件顶部添加权限
+permissions:
+  issues: write
+  contents: read
+  
 jobs:
   worker:
     runs-on: ubuntu-latest
