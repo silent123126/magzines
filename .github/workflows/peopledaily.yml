@@ -6,7 +6,6 @@ on:
   schedule:
     - cron: '0 1 * * *'
 
-# 在 workflow 文件顶部添加权限
 permissions:
   issues: write
   contents: write
@@ -18,11 +17,12 @@ jobs:
       output: converted_ebooks
       publisher: plsy1.github.io
       author: y1
+      # 给 DATE 设置默认值（避免空值）
+      DATE: $(date +%Y%m%d)
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          # 使用默认的 GITHUB_TOKEN，但有写入权限
           token: ${{ secrets.GITHUB_TOKEN }}
         
       - name: Set up Python
@@ -30,6 +30,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          
       - name: Install Calibre
         if: ${{ success() }}
         run: |
@@ -39,6 +40,7 @@ jobs:
           sudo -v && wget -nv -O- $url | sudo sh /dev/stdin
 
       - name: Converting Ebook
+        id: convert_ebook  # 增加 step id 用于后续判断
         run: |
           mkdir -p $output
           convert_ebook() {
@@ -57,10 +59,15 @@ jobs:
             ebook-meta "$epub_path" --get-cover="$cover_image"
             echo "Cover extracted and saved to $cover_image"
 
-            # Rename EPUB
-            #title=$(ebook-meta "$epub_path" | grep '^Title *:' | sed 's/^Title *: *\(.*\)/\1/')
+            # 提取日期并增加非空校验
             title=$(echo "$convert_output" | grep -oP 'magazine/\K\d{4}/\d{2}/\d{2}' | head -n1 | sed 's#/#\n#g' | tr -d '\n')
+            # 如果提取不到日期，使用当前日期作为兜底
+            if [ -z "$title" ]; then
+              echo "Warning: Failed to extract date, using current date instead."
+              title=$(date +%Y%m%d)
+            fi
             echo "DATE=$title" >> $GITHUB_ENV
+            echo "title=$title" >> $GITHUB_OUTPUT  # 输出到 step output
 
             book_name="$title - People Daily Magazine"
             
@@ -79,9 +86,9 @@ jobs:
       - name: Upload output directory as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.DATE }}
+          # 双重兜底：优先用 step output，其次用环境变量默认值
+          name: ${{ steps.convert_ebook.outputs.title || env.DATE }}
           path: converted_ebooks
-
 
       - name: Push to 'magzines' branch
         run: |
@@ -92,6 +99,12 @@ jobs:
           git checkout magzines
           mkdir -p the_new_yorker
 
+          # 使用环境变量前增加非空校验
+          if [ -z "$DATE" ]; then
+            echo "Error: DATE is empty!"
+            exit 1
+          fi
+
           if [ -d "the_new_yorker/$DATE" ]; then
             echo "Directory the_new_yorker/$DATE already exists, stop."
             exit 0
@@ -101,9 +114,8 @@ jobs:
           fi
           git add the_new_yorker/*
           if [[ $(git diff --cached --quiet || echo "changes") == "changes" ]]; then
-            git commit -m "Update People Daily Magazine"
+            git commit -m "Update People Daily Magazine: $DATE"
             git push origin magzines
           else
             echo "No changes to push."
           fi
-        
